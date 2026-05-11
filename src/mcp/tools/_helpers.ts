@@ -4,14 +4,17 @@ export type ToolHandler = (input: unknown) => Promise<unknown>;
 
 export function toolResponse(result: unknown) {
   return {
+    structuredContent: result,
     content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }]
   };
 }
 
 export function toolErrorResponse(error: unknown) {
+  const structuredError = toStructuredError(error);
   return {
     isError: true,
-    content: [{ type: "text" as const, text: JSON.stringify(toStructuredError(error), null, 2) }]
+    structuredContent: structuredError,
+    content: [{ type: "text" as const, text: JSON.stringify(structuredError, null, 2) }]
   };
 }
 

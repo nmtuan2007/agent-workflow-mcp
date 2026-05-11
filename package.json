@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "description": "Superpowers-inspired engineering workflow MCP server",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "bin": {
-    "agent-workflow-mcp": "dist/index.js"
+    "agent-workflow-mcp": "dist/src/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

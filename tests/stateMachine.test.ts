@@ -46,8 +46,6 @@ describe("state machine", () => {
     await service.generateSpec({ session_id: start.session_id, spec_intent: "initial", notes: "" });
     await service.approveSpec({ session_id: start.session_id, version: 1, approval_note: "" });
     const first = await service.generatePlan({ session_id: start.session_id, planning_mode: "task-breakdown", notes: "" });
-    await service.approvePlan({ session_id: start.session_id, version: 1, approval_note: "" });
-    await service.approveSpec({ session_id: start.session_id, version: 1, approval_note: "replan" });
     const second = await service.generatePlan({ session_id: start.session_id, planning_mode: "task-breakdown", notes: "revise" });
     expect(first.version).toBe(1);
     expect(second.version).toBe(2);

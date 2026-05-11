@@ -42,11 +42,11 @@ export function recommendedAction(session: WorkflowSession): string | null {
 }
 
 export function allowedActions(session: WorkflowSession): string[] {
-  const actions: string[] = ["capture_constraints"];
+  const actions: string[] = session.state === "FINISHED" ? [] : ["capture_constraints"];
   if (["DISCOVERY", "SPEC_DRAFT", "SPEC_REVIEW"].includes(session.state)) actions.push("generate_spec");
-  if (session.currentSpecVersion !== null) actions.push("approve_spec");
-  if (session.state === "SPEC_APPROVED") actions.push("generate_plan");
-  if (session.currentPlanVersion !== null) actions.push("approve_plan");
+  if (session.state === "SPEC_REVIEW" && session.currentSpecVersion !== null) actions.push("approve_spec");
+  if (["SPEC_APPROVED", "PLAN_DRAFT"].includes(session.state)) actions.push("generate_plan");
+  if (session.state === "PLAN_DRAFT" && session.currentPlanVersion !== null) actions.push("approve_plan");
   if (["PLAN_APPROVED", "EXECUTING", "REVIEW_PENDING", "REVIEW_FAILED", "REVIEW_PASSED", "VERIFY_PENDING", "VERIFIED"].includes(session.state)) {
     actions.push("get_next_task", "review_artifact", "verify_artifact");
   }
@@ -62,13 +62,13 @@ export function assertCanGenerateSpec(session: WorkflowSession): void {
 
 export function assertCanApproveSpec(session: WorkflowSession, latestSpec: ArtifactRecord | null): void {
   if (!latestSpec) throw missingArtifact("Cannot approve spec because no spec artifact exists.");
-  if (session.state === "FINISHED") {
+  if (session.state !== "SPEC_REVIEW") {
     throw invalidTransition(session.state, "approve_spec", allowedActions(session));
   }
 }
 
 export function assertCanGeneratePlan(session: WorkflowSession): void {
-  if (session.state !== "SPEC_APPROVED") {
+  if (!["SPEC_APPROVED", "PLAN_DRAFT"].includes(session.state)) {
     throw invalidTransition(session.state, "generate_plan", allowedActions(session));
   }
   if (session.currentSpecVersion === null) {
@@ -78,7 +78,7 @@ export function assertCanGeneratePlan(session: WorkflowSession): void {
 
 export function assertCanApprovePlan(session: WorkflowSession, latestPlan: ArtifactRecord | null): void {
   if (!latestPlan) throw missingArtifact("Cannot approve plan because no plan artifact exists.");
-  if (session.state === "FINISHED") {
+  if (session.state !== "PLAN_DRAFT") {
     throw invalidTransition(session.state, "approve_plan", allowedActions(session));
   }
 }
@@ -90,8 +90,8 @@ export function assertCanExecute(session: WorkflowSession, action: string): void
 }
 
 export function assertCanVerify(session: WorkflowSession, hasReview: boolean, hasEvidence: boolean): void {
-  if (!hasReview && !hasEvidence) {
-    throw missingArtifact("Cannot verify before review or evidence exists.");
+  if (!hasReview || !hasEvidence) {
+    throw missingArtifact("Cannot verify before a passing review and matching evidence exist.");
   }
   assertCanExecute(session, "verify_artifact");
 }

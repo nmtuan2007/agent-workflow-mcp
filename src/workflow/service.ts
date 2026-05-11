@@ -1,8 +1,9 @@
-import { invalidSession, missingArtifact } from "../domain/errors.js";
+import { invalidSession, invalidTransition, missingArtifact } from "../domain/errors.js";
 import {
   ArtifactRecord,
   EvidenceRecord,
   WorkflowSession,
+  WorkflowState,
   WorkflowTask
 } from "../domain/types.js";
 import {
@@ -30,8 +31,10 @@ import {
   assertCanGeneratePlan,
   assertCanGenerateSpec,
   assertCanVerify,
+  allowedActions,
   recommendedAction
 } from "./policy.js";
+import { canTransition } from "./stateMachine.js";
 
 export class WorkflowService {
   constructor(
@@ -68,6 +71,7 @@ export class WorkflowService {
   async captureConstraints(input: unknown) {
     const data = captureConstraintsInputSchema.parse(input);
     const session = await this.getSession(data.session_id);
+    this.assertTransition(session, session.state, "capture_constraints");
     const updated: WorkflowSession = {
       ...session,
       constraints: data.mode === "replace" ? data.constraints : [...session.constraints, ...data.constraints],
@@ -92,6 +96,7 @@ export class WorkflowService {
       intent: data.spec_intent,
       notes: data.notes
     }));
+    this.assertTransition(session, "SPEC_REVIEW", "generate_spec");
     const updated = { ...session, state: "SPEC_REVIEW" as const, currentSpecVersion: version, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
@@ -119,6 +124,7 @@ export class WorkflowService {
       note: data.approval_note,
       createdAt: nowIso()
     });
+    this.assertTransition(session, "SPEC_APPROVED", "approve_spec");
     const updated = { ...session, state: "SPEC_APPROVED" as const, currentSpecVersion: data.version, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
@@ -140,6 +146,7 @@ export class WorkflowService {
       notes: data.notes,
       tasks: tasks.map((task) => ({ ...task, status: task.status ?? "todo" }))
     }));
+    this.assertTransition(session, "PLAN_DRAFT", "generate_plan");
     const updated = { ...session, state: "PLAN_DRAFT" as const, currentPlanVersion: version, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
@@ -167,6 +174,7 @@ export class WorkflowService {
       note: data.approval_note,
       createdAt: nowIso()
     });
+    this.assertTransition(session, "PLAN_APPROVED", "approve_plan");
     const updated = { ...session, state: "PLAN_APPROVED" as const, currentPlanVersion: data.version, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
@@ -183,6 +191,7 @@ export class WorkflowService {
     assertCanExecute(session, "get_next_task");
     const tasks = await this.getTasks(session);
     const task = tasks.find((item) => item.status !== "done") ?? tasks[0];
+    this.assertTransition(session, "EXECUTING", "get_next_task");
     const updated = { ...session, state: "EXECUTING" as const, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
@@ -218,17 +227,19 @@ ${data.summary}
 ${data.evidence.length ? data.evidence.map((item) => `- ${item.kind}: ${item.content}`).join("\n") : "- No evidence supplied"}
 
 ## Verdict
-pass
-`, { artifact_ref: data.artifact_ref, verdict: "pass" }));
-    const updated = { ...session, state: "REVIEW_PASSED" as const, updatedAt: nowIso() };
+${data.verdict}
+`, { artifact_ref: data.artifact_ref, verdict: data.verdict }));
+    const nextState: WorkflowState = data.verdict === "pass" ? "REVIEW_PASSED" : "REVIEW_FAILED";
+    this.assertTransition(session, nextState, "review_artifact");
+    const updated = { ...session, state: nextState, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
       session_id: session.id,
       artifact_type: "review",
       version,
       state: updated.state,
-      verdict: "pass",
-      next_recommended_action: "verify_artifact"
+      verdict: data.verdict,
+      next_recommended_action: recommendedAction(updated)
     };
   }
 
@@ -237,7 +248,10 @@ pass
     const session = await this.getSession(data.session_id);
     const latestReview = await this.artifacts.latest(session.id, "review");
     const evidence = await this.artifacts.listEvidence(session.id);
-    assertCanVerify(session, Boolean(latestReview), evidence.length > 0);
+    const latestReviewMetadata = latestReview ? JSON.parse(latestReview.metadataJson) as { artifact_ref?: string; verdict?: string } : null;
+    const hasPassingReview = latestReviewMetadata?.artifact_ref === data.artifact_ref && latestReviewMetadata.verdict === "pass";
+    const hasMatchingEvidence = evidence.some((item) => item.artifactType === data.artifact_ref);
+    assertCanVerify(session, hasPassingReview, hasMatchingEvidence);
     const version = await this.artifacts.nextVersion(session.id, "verification");
     await this.artifacts.save(this.artifact(session, "verification", version, "markdown", `# Verification v${version}: ${data.artifact_ref}
 
@@ -250,6 +264,7 @@ ${evidence.length}
 ## Verdict
 pass
 `, { artifact_ref: data.artifact_ref, verdict: "pass" }));
+    this.assertTransition(session, "VERIFIED", "verify_artifact");
     const updated = { ...session, state: "VERIFIED" as const, updatedAt: nowIso() };
     await this.workflows.save(updated);
     return {
@@ -266,6 +281,7 @@ pass
     const data = finishWorkflowInputSchema.parse(input);
     const session = await this.getSession(data.session_id);
     assertCanFinish(session);
+    this.assertTransition(session, "FINISHED", "finish_workflow");
     const updated = { ...session, state: "FINISHED" as const, updatedAt: nowIso() };
     await this.workflows.save(updated);
     await this.artifacts.save(this.artifact(updated, "decision-log", await this.artifacts.nextVersion(session.id, "decision-log"), "markdown", `# Closing Note
@@ -315,6 +331,16 @@ ${data.closing_note || "Workflow complete"}
     const session = await this.workflows.findById(sessionId);
     if (!session) throw invalidSession(sessionId);
     return session;
+  }
+
+  private assertTransition(session: WorkflowSession, nextState: WorkflowState, action: string): void {
+    if (session.state === nextState) {
+      if (session.state === "FINISHED") throw invalidTransition(session.state, action, []);
+      return;
+    }
+    if (!canTransition(session.state, nextState)) {
+      throw invalidTransition(session.state, action, allowedActions(session));
+    }
   }
 
   private async getTasks(session: WorkflowSession): Promise<WorkflowTask[]> {

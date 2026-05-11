@@ -114,6 +114,7 @@ export const reviewArtifactInputSchema = z.object({
   session_id: z.string(),
   artifact_ref: z.string(),
   summary: z.string().min(1),
+  verdict: z.enum(["pass", "fail"]).default("pass"),
   evidence: z.array(evidenceInputSchema).default([])
 });
 
