@@ -7,6 +7,10 @@ import { runStdio } from "./transports/stdio.js";
 
 async function main() {
   const config = loadConfig();
+  console.error(`[agent-workflow-mcp] Starting server...`);
+  console.error(`[agent-workflow-mcp] Transport: ${config.transport}`);
+  console.error(`[agent-workflow-mcp] Database: ${config.databasePath}`);
+  
   const db = await createDatabase(config.databasePath);
   await db.init();
   const deps = createDeps(db);

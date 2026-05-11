@@ -113,7 +113,29 @@ describe("built MCP contract", () => {
     expect(spec.contents[0].mimeType).toBe("text/markdown");
     expect(plan.contents[0].mimeType).toBe("text/markdown");
     expect(tasks.contents[0].mimeType).toBe("application/json");
-    expect(review.contents[0].text).toContain("# Review v1");
-    expect(verification.contents[0].text).toContain("# Verification v1");
+    expect((review.contents[0] as { text: string }).text).toContain("# Review v1");
+    expect((verification.contents[0] as { text: string }).text).toContain("# Verification v1");
+  });
+
+  it("returns structured errors on invalid transitions", async () => {
+    const mcp = await connectBuiltClient();
+    const started = await mcp.callTool({
+      name: "start_workflow",
+      arguments: {
+        title: "Error test",
+        problem_statement: "Verify MCP error structure",
+        constraints: [],
+        desired_outcomes: []
+      }
+    });
+    const sessionId = (started.structuredContent as { session_id: string }).session_id;
+
+    const result = await mcp.callTool({ name: "generate_plan", arguments: { session_id: sessionId, planning_mode: "task-breakdown", notes: "" } });
+    
+    expect(result.isError).toBe(true);
+    const errorPayload = result.structuredContent as any;
+    expect(errorPayload.code).toBe("INVALID_TRANSITION");
+    expect(errorPayload.current_state).toBe("DISCOVERY");
+    expect(errorPayload.attempted_action).toBe("generate_plan");
   });
 });

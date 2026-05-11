@@ -34,20 +34,33 @@ npm run dev
 
 By default the server uses stdio and writes SQLite data to `workflow.db`. Override the database path with `WORKFLOW_DB_PATH`.
 
-## Local Stdio
+## Quickstart
 
+You can run `agent-workflow-mcp` using either `stdio` (for local MCP client integrations) or `http` (for remote integrations).
+
+First, build the project:
 ```sh
-WORKFLOW_DB_PATH=workflow.db npm run dev
+npm install
+npm run build
 ```
 
-Example MCP client config:
+Then, configure your environment using a `.env` file (see `.env.example`).
 
+### Local Stdio
+
+For local execution, the server defaults to `stdio` transport. Run the server using:
+
+```sh
+npm start
+```
+
+Example MCP client config (e.g., for Claude Desktop):
 ```json
 {
   "mcpServers": {
     "agent-workflow": {
       "command": "node",
-      "args": ["dist/index.js"],
+      "args": ["dist/src/index.js"],
       "env": {
         "WORKFLOW_DB_PATH": "workflow.db"
       }
@@ -56,31 +69,56 @@ Example MCP client config:
 }
 ```
 
-## Streamable HTTP
+### Streamable HTTP
+
+For remote setups or development tools that support Streamable HTTP, run the server with the `http` transport:
 
 ```sh
-MCP_TRANSPORT=http HOST=127.0.0.1 PORT=3000 WORKFLOW_DB_PATH=workflow.db npm run dev
+MCP_TRANSPORT=http PORT=3000 npm run dev
 ```
 
 Endpoint:
-
 ```text
 http://127.0.0.1:3000/mcp
 ```
 
-## Sample Walkthrough
+## Sample Walkthrough Session
 
-1. Call `start_workflow`.
-2. Call `generate_spec`.
-3. Call `approve_spec`.
-4. Call `generate_plan`.
-5. Call `approve_plan`.
-6. Call `get_next_task`.
-7. Call `review_artifact` with evidence.
-8. Call `verify_artifact`.
-9. Call `finish_workflow`.
+Here is an example of the progression of an engineering task using the provided MCP tools:
 
-Invalid transitions return structured tool errors with `current_state`, `attempted_action`, and `allowed_actions`.
+1. **Start the workflow**
+   - Tool: `start_workflow`
+   - Purpose: Define the problem statement and create a new session.
+   
+2. **Design the solution**
+   - Tool: `generate_spec`
+   - Purpose: Drafts an engineering specification outlining the architecture and implementation details.
+   - *Requires User Approval*: Use the `approve_spec` tool after review.
+
+3. **Plan the execution**
+   - Tool: `generate_plan`
+   - Purpose: Breaks the approved specification down into actionable tasks.
+   - *Requires User Approval*: Use the `approve_plan` tool after review.
+
+4. **Execute and Review**
+   - Tool: `get_next_task` (Retrieves the next pending task)
+   - *Write Code...*
+   - Tool: `review_artifact` (Submit evidence of the completed task, e.g., test results)
+   - Tool: `verify_artifact` (Verify that the review meets the definition of done)
+
+5. **Completion**
+   - Tool: `finish_workflow`
+   - Purpose: Marks the workflow as finished once all artifacts are verified.
+
+Invalid transitions (e.g., trying to generate a plan before a spec is approved) will return structured tool errors containing the `current_state`, the `attempted_action`, and the `allowed_actions`.
+
+## Release Notes
+
+### v0.1.0 - Public Beta
+- **Config Validation**: Strict parsing of configuration variables via Zod.
+- **Improved Observability**: Added startup diagnostic logs and robust error structures.
+- **Negative Tests**: Extended the testing suite to cover edge cases and invalid transitions.
+- **Transport**: Standardized `stdio` (default) and `http` integrations for IDE and Agent interoperability.
 
 ## Resources
 

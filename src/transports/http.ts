@@ -26,6 +26,6 @@ export async function runHttp(server: McpServer, options: { host: string; port: 
   });
 
   app.listen(options.port, options.host, () => {
-    console.error(`agent-workflow-mcp listening on http://${options.host}:${options.port}/mcp`);
+    console.error(`[agent-workflow-mcp] Server ready on http://${options.host}:${options.port}/mcp`);
   });
 }
